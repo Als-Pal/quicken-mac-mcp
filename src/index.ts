@@ -167,10 +167,10 @@ function printManPage() {
     `       ${c.bold("IMPORTANT:")} Quicken For Mac must be running while using this tool.`
   );
   console.log(
-    "       Quicken encrypts its database bundle when the application is closed."
+    "       On most installs Quicken replaces its database with an encrypted stub"
   );
   console.log(
-    "       The database is only decrypted and readable while Quicken is active."
+    "       when the application is closed, so the data is readable only while it runs."
   );
   console.log();
 

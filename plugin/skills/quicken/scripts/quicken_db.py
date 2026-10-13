@@ -32,16 +32,43 @@ def normalize_database_path(value: str | Path) -> Path:
     return path.resolve()
 
 
-def discover_candidates() -> list[Path]:
-    documents = Path.home() / "Documents"
-    if not documents.is_dir():
-        return []
+def search_directories() -> list[Path]:
+    """Directories Quicken for Mac uses for .quicken bundles, in search order.
 
+    ~/Documents (the original search location), the retail default under
+    ~/Library/Application Support/Quicken*/Documents ("Quicken Beta" and
+    year-suffixed folders included), and the Mac App Store sandbox container.
+    """
+    home = Path.home()
+    dirs = [home / "Documents"]
+    app_support = home / "Library" / "Application Support"
+    if app_support.is_dir():
+        for entry in sorted(app_support.iterdir()):
+            if entry.name == "Quicken" or entry.name.startswith("Quicken "):
+                dirs.append(entry / "Documents")
+    dirs.append(
+        home
+        / "Library"
+        / "Containers"
+        / "com.quicken.QuickenAppStore"
+        / "Data"
+        / "Library"
+        / "Application Support"
+        / "Quicken"
+        / "Documents"
+    )
+    return dirs
+
+
+def discover_candidates() -> list[Path]:
     candidates: list[Path] = []
-    for bundle in documents.glob("*.quicken"):
-        data = bundle / "data"
-        if data.is_file():
-            candidates.append(data.resolve())
+    for directory in search_directories():
+        if not directory.is_dir():
+            continue
+        for bundle in directory.glob("*.quicken"):
+            data = bundle / "data"
+            if data.is_file():
+                candidates.append(data.resolve())
     return sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True)
 
 
@@ -207,7 +234,7 @@ def parser() -> argparse.ArgumentParser:
     probe_parser.add_argument("--db", help="Path to a .quicken bundle or data file.")
 
     subparsers.add_parser(
-        "candidates", help="List Quicken databases found directly under ~/Documents."
+        "candidates", help="List Quicken databases found in the known Quicken locations."
     )
 
     tag_parser = subparsers.add_parser(

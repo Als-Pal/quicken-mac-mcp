@@ -20,41 +20,92 @@ import { join, resolve } from "path";
 export const CORE_DATA_EPOCH_OFFSET = 978307200;
 
 /**
- * Auto-detect a Quicken database by scanning ~/Documents for .quicken bundles.
- * Returns the path to the `data` file when exactly one bundle exists. Refuses
- * to guess when multiple bundles are present because modification time does not
- * reliably identify the intended or unlocked document.
+ * Directories Quicken For Mac uses for `.quicken` bundles, in the order they
+ * are searched:
+ *
+ *   1. ~/Documents — the location this project searched originally, and a
+ *      common place to keep a file after File → Move To.
+ *   2. ~/Library/Application Support/<Quicken folder>/Documents — the default for the
+ *      retail/subscription app (the folder is "Quicken", or "Quicken Beta" for
+ *      the beta channel, and older releases carried a year in the name).
+ *   3. The Mac App Store build's sandbox container.
+ *
+ * Quicken's own help ("Learning about data files") documents 2 and 3.
+ */
+export function quickenSearchDirectories(): string[] {
+  const home = homedir();
+  const dirs = [join(home, "Documents")];
+
+  const appSupport = join(home, "Library", "Application Support");
+  let appSupportEntries: string[] = [];
+  try {
+    appSupportEntries = readdirSync(appSupport);
+  } catch {
+    // Unreadable or absent; fall through with the other directories.
+  }
+  for (const entry of appSupportEntries.sort()) {
+    if (entry === "Quicken" || entry.startsWith("Quicken ")) {
+      dirs.push(join(appSupport, entry, "Documents"));
+    }
+  }
+
+  dirs.push(
+    join(
+      home,
+      "Library",
+      "Containers",
+      "com.quicken.QuickenAppStore",
+      "Data",
+      "Library",
+      "Application Support",
+      "Quicken",
+      "Documents"
+    )
+  );
+  return dirs;
+}
+
+/**
+ * Auto-detect a Quicken database by scanning every known Quicken document
+ * directory for `.quicken` bundles. Returns the path to the `data` file when
+ * exactly one bundle exists across all of them. Refuses to guess when several
+ * are present because modification time does not reliably identify the
+ * intended or unlocked document.
  */
 export function detectQuickenDb(): string {
-  const documentsDir = join(homedir(), "Documents");
+  const searched = quickenSearchDirectories();
+  const bundles: string[] = [];
 
-  let entries: string[];
-  try {
-    entries = readdirSync(documentsDir);
-  } catch {
+  for (const dir of searched) {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      continue; // directory absent or unreadable
+    }
+    for (const entry of entries) {
+      if (entry.endsWith(".quicken")) bundles.push(resolve(dir, entry, "data"));
+    }
+  }
+
+  if (bundles.length === 0) {
     throw new Error(
-      `Cannot read ~/Documents. Set QUICKEN_DB_PATH to your Quicken database path.`
+      `No .quicken bundles found in any of the usual Quicken locations:\n` +
+        searched.map((d) => `  ${d}`).join("\n") +
+        `\n\nSet the database path when adding the server:\n` +
+        `  claude mcp add quicken -e QUICKEN_DB_PATH=/path/to/YourFile.quicken/data -- npx -y quicken-mac-mcp`
     );
   }
 
-  const quickenBundles = entries.filter((e) => e.endsWith(".quicken"));
-
-  if (quickenBundles.length === 0) {
+  if (bundles.length > 1) {
     throw new Error(
-      `No .quicken bundles found in ~/Documents.\n\n` +
-        `Set the database path when adding the server:\n` +
-        `  claude mcp add quicken -e QUICKEN_DB_PATH=~/Documents/YourFile.quicken/data -- npx -y quicken-mac-mcp`
+      `Multiple .quicken bundles found:\n` +
+        bundles.map((b) => `  ${b}`).join("\n") +
+        `\nSet QUICKEN_DB_PATH to the intended Quicken database path.`
     );
   }
 
-  if (quickenBundles.length > 1) {
-    throw new Error(
-      `Multiple .quicken bundles found in ~/Documents. ` +
-        `Set QUICKEN_DB_PATH to the intended Quicken database path.`
-    );
-  }
-
-  return resolve(documentsDir, quickenBundles[0], "data");
+  return bundles[0];
 }
 
 /**
@@ -63,7 +114,7 @@ export function detectQuickenDb(): string {
  * Resolution order for the database path:
  *   1. Explicit `dbPath` argument (e.g., CLI positional arg)
  *   2. QUICKEN_DB_PATH environment variable
- *   3. Auto-detect from ~/Documents/*.quicken/data
+ *   3. Auto-detect: the single `.quicken` bundle across quickenSearchDirectories()
  */
 export function openDatabase(dbPath?: string): Database.Database {
   const resolvedPath = dbPath || process.env.QUICKEN_DB_PATH || detectQuickenDb();

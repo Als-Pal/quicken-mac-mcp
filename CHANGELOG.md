@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Database auto-detection (server, CLI, Python probe, CSV exporter, and the live-test status script) now searches the retail/subscription default `~/Library/Application Support/Quicken*/Documents` and the Mac App Store sandbox container as well as `~/Documents`. Previously a file in Quicken's own default location produced "No .quicken bundles found". The not-found error lists every directory searched and the multiple-bundles error lists the bundles.
+- Documentation no longer states that the data file is always encrypted while Quicken is closed; some installs keep it readable, and the probe's `ZACCOUNT` check is the test.
+
 ## 1.6.0
 
 ### Added

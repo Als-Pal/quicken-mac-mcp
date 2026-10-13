@@ -14,7 +14,7 @@ Quicken for Mac stores its data in a [Core Data](https://developer.apple.com/doc
 - **Z-prefix** -- all table and column names are prefixed with `Z`
 - **TIMESTAMP columns** -- Core Data epoch: seconds since **2001-01-01 00:00:00 UTC**. Add `978307200` to convert to Unix epoch.
 - **Z_ENT values are per-database** -- always look up entity type numbers from `Z_PRIMARYKEY` at runtime; they may differ across Quicken data files.
-- **Encryption** -- Quicken encrypts the `data` file when the app is closed. The database is only readable while Quicken is running.
+- **Encryption** -- on most installs Quicken replaces the `data` file with an encrypted stub when the app is closed, so the database is only readable while Quicken is running. Not every install does this: a Quicken Beta 9.3 file under `~/Library/Application Support/Quicken Beta/Documents/` stayed a readable SQLite database with Quicken quit (observed October 2026). Test for the `ZACCOUNT` table rather than assuming.
 
 ### Writing back to the database (forks / one-off scripts)
 
@@ -3231,8 +3231,8 @@ Always filter on `Z_ENT` (looked up from `Z_PRIMARYKEY`) when querying `ZTAG` to
 
 ### Quicken Database Access
 
-- The database file is located at `~/Documents/<name>.quicken/data`
-- Quicken **encrypts** the file when the application is not running; the `data` file becomes a ~24KB metadata stub
+- The database file is `<name>.quicken/data`. Default locations: `~/Library/Application Support/Quicken/Documents/` (retail/subscription; `Quicken Beta` for the beta channel), the Mac App Store sandbox container, or wherever File → Move To put it (often `~/Documents`)
+- On most installs Quicken **encrypts** the file when the application is not running; the `data` file becomes a ~24KB metadata stub. Some installs leave it readable (see Core Data Conventions above)
 - The file's inode changes when Quicken opens/closes the database
 - Always open the database in **read-only mode** (`?mode=ro`) to avoid interfering with Quicken's Core Data stack
 
