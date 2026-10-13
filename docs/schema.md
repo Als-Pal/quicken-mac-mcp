@@ -23,7 +23,7 @@ This MCP server opens the database read-only and never writes. If you fork the s
 1. **Increment `Z_OPT` on every UPDATE.** It is the optimistic-locking counter Core Data uses to detect concurrent edits. Updates that don't bump `Z_OPT` may be silently rolled back or cause Quicken to corrupt the row on next sync. Always write `SET ZNOTE = ?, Z_OPT = Z_OPT + 1`.
 2. **Quicken must be closed before writing.** The same encryption that requires Quicken to be open for *reads* means concurrent writes from your script while Quicken is running will fight Core Data's in-memory state. Quit Quicken, run your update, then reopen — Quicken will pick up the changed rows.
 
-3. **If Mobile & Web sync is on, also set the modification timestamps.** Quicken reconciles each row against its cloud copy and the newer side wins, so a row changed with only `Z_OPT + 1` can be reverted by the next sync. Set `ZMODIFICATIONTIMESTAMP` and `ZUSERMODIFIEDTIMESTAMP` to now (Core Data epoch: Unix seconds minus `978307200`) in the same `UPDATE`; that made the desktop row the newer one and the change survived the following sync and reopen.
+3. **If Mobile & Web sync is on, also set the modification timestamps.** Quicken reconciles each row against its cloud copy and the newer side wins, so a row changed with only `Z_OPT + 1` can be reverted by the next sync. Set `ZMODIFICATIONTIMESTAMP` and `ZUSERMODIFIEDTIMESTAMP` to now (Core Data epoch: Unix seconds minus `978307200`) in the same `UPDATE`; that made the desktop row the newer one and the change survived the next reopen (longer-term survival across syncs was not followed).
 
 Always make a file-level backup of the `.quicken/data` file before writing, and put it **outside** the `.quicken` bundle. A copy left inside the bundle is swept into Quicken's own backups and inflates every one of them.
 
@@ -3187,7 +3187,7 @@ JOIN ZRECONCILEDTRANSACTION rt ON rt.ZRECONCILERECORD = rr.Z_PK;
 
 ## Field Semantics and Traps
 
-Everything in this section was learned by querying one real-world Quicken For Mac file (a different, newer file than the Quicken 8.5 capture the DDL above comes from: Quicken 9.x, roughly 90,000 transactions, with investment accounts) and cross-checking against the Quicken UI and institution statements. Every mechanism described below is "observed on that file", not a specification: Quicken's model differs between versions, some of these fields have never been documented by Intuit, and the skill references in `plugin/skills/quicken/references/` are right to ask you to validate each of them on your own file before relying on it.
+Everything in this section was learned by querying one real-world Quicken For Mac file (a different, newer file than the Quicken 8.5 capture the DDL above comes from: Quicken 9.x, roughly 90,000 transactions, with investment accounts) and cross-checking against the Quicken UI and institution statements. Every mechanism described below is "observed on that file", not a specification: Quicken's model differs between versions, and the skill references in `plugin/skills/quicken/references/` are right to ask you to validate each of them on your own file before relying on it.
 
 ### Soft deletes: `ZDELETIONCOUNT`
 
@@ -3200,7 +3200,7 @@ Filter `COALESCE(ZDELETIONCOUNT, 0) = 0` on single-table reads (payees, categori
 
 ### `ZTRANSACTION.ZTYPE` codes
 
-`ZTYPE` tells you what kind of row an investment transaction is. The codes were resolved by matching each row's signature (units in or out, cash in or out) to the Quicken register and, for the ambiguous ones, to the category on the row's `ZCASHFLOWTRANSACTIONENTRY`. Investment rows are `Z_ENT = InvestmentTransaction`; banking rows are type 1.
+`ZTYPE` tells you what kind of row an investment transaction is. The codes were resolved by matching each row's signature (units in or out, cash in or out, measured over every row of that type) to the Quicken register and, for the ambiguous ones, to the category on the row's `ZCASHFLOWTRANSACTIONENTRY`. Investment rows are `Z_ENT = InvestmentTransaction`; banking rows are type 1.
 
 | `ZTYPE` | Meaning | Signature |
 |---:|---|---|
@@ -3215,7 +3215,7 @@ Filter `COALESCE(ZDELETIONCOUNT, 0) = 0` on single-table reads (payees, categori
 | 10 | Dividend / income | `ZUNITS` 0, cash in |
 | 11 | Interest income | `ZUNITS` 0, cash in |
 | 12 | Mixed; not determinable from signature | — |
-| 13 | Reinvest long-term capital gain | units in, `ZAMOUNT` 0 |
+| 13 | Reinvest long-term capital gain | every row inert on the observed file: `ZUNITS` 0 and `ZAMOUNT` 0 |
 | 15 | Reinvest dividend | units in, `ZAMOUNT` 0 |
 | 16 | Reinvest interest | units in, `ZAMOUNT` 0 |
 | 17 | Remove Shares, including automatic Placeholders | units out, `ZAMOUNT` 0 |
@@ -3225,11 +3225,11 @@ Filter `COALESCE(ZDELETIONCOUNT, 0) = 0` on single-table reads (payees, categori
 | 21 | Short Sell | units out, cash in |
 | 23 | Stock Split | `ZUNITS` 0, `ZAMOUNT` 0; dated on the split |
 
-The mapping is not exhaustive (6, 14 and 22 were not present in the file it came from). Never write a `CASE` over it without an `ELSE`.
+The mapping is not exhaustive (6, 14 and 22 did not occur in the file it came from, so their meaning is unknown). Never write a `CASE` over it without an `ELSE`.
 
 ### `ZFITRANSACTION` is a download archive, not a register
 
-`ZFITRANSACTION` holds what the institution sent. It is **not** deduplicated: the same `ZFITRANSACTIONID` appeared up to roughly twenty times on heavily re-downloaded accounts, and `SUM(ZAMOUNT)` over the table produced a card total a thousand times too large. The amounts are signed and do net; the problem is the duplication, not the sign. Use `ZTRANSACTION` for anything financial, and when you must read the download table, deduplicate on `ZFITRANSACTIONID`.
+`ZFITRANSACTION` holds what the institution sent. It is **not** deduplicated: the same `ZFITRANSACTIONID` appeared up to roughly twenty times on heavily re-downloaded accounts, and `SUM(ZAMOUNT)` over the table produced a credit-card total in the millions. The amounts are signed and do net; the problem is the duplication, not the sign. Use `ZTRANSACTION` for anything financial, and when you must read the download table, deduplicate on `ZFITRANSACTIONID`.
 
 Rows with no matching `ZTRANSACTION` are mostly historical re-downloads, not a review queue: on one file three quarters of the table was unmatched. Scope to one account and a recent date window before reading anything into them.
 
@@ -3247,7 +3247,7 @@ ORDER BY download_rows - distinct_downloads DESC;
 
 ### Security identity: `ZTICKER` can be stale, `ZSECURITYID` is authoritative
 
-`ZSECURITY.ZTICKER` is free text that can hold an old symbol or CUSIP. The identifier Quicken actually matches on is `ZSECURITYID.ZUNIQUEID` with `ZUNIQUEIDTYPE` (`CUSIP`, `QCSSYMBOL`, or `MANUAL`). A security once appeared to be filed under the wrong CUSIP purely because `ZTICKER` was stale; acting on the ticker would have meant editing dozens of positions to fix a defect that did not exist. Files also accumulate near-duplicate securities with almost identical names (one per data feed that ever reported the instrument), so always check which `ZSECURITY` row a position actually points at before grouping by name or ticker.
+`ZSECURITY.ZTICKER` is free text that can hold an old symbol or CUSIP. The identifier Quicken actually matches on is `ZSECURITYID.ZUNIQUEID` with `ZUNIQUEIDTYPE` (`CUSIP`, `QCSSYMBOL`, or `MANUAL`). A security once appeared to be filed under the wrong CUSIP purely because `ZTICKER` was stale; acting on the ticker would have meant editing dozens of positions to fix a defect that did not exist. Files also accumulate near-duplicate securities with almost identical names, so always check which `ZSECURITY` row a position actually points at before grouping by name or ticker.
 
 ```sql
 SELECT s.Z_PK AS security_id, s.ZNAME AS security_name, s.ZTICKER AS ticker,
@@ -3296,9 +3296,9 @@ Exclude placeholders from any analysis of what the user did, and treat a non-zer
 
 ### Stock splits: `ZSECURITYSPLIT` and `ZTYPE = 23`
 
-`ZSECURITYSPLIT` holds the corporate action (`ZSECURITY`, `ZSPLITDATE`, `ZNUMERATOR`, `ZDENOMINATOR`). New shares per old share is `ZNUMERATOR / ZDENOMINATOR`, but the two columns arrive in two shapes: downloaded rows are stored as `1 : 1/ratio` rounded to six decimals (a 3-for-1 is `1 / 0.333333`, a 1-for-5 reverse split is `1 / 5`), while a split typed into the register is stored as `ratio : 1` (`3 / 1`). Compare the quotient, never the columns.
+`ZSECURITYSPLIT` holds the corporate action (`ZSECURITY`, `ZSPLITDATE`, `ZNUMERATOR`, `ZDENOMINATOR`). New shares per old share is `ZNUMERATOR / ZDENOMINATOR`, but the two columns arrive in two shapes: downloaded rows are stored as `1 : 1/ratio` rounded to six decimals (a 3-for-1 is `1 / 0.333333`; the shape `1 / 5` also occurs, which reads as a 1-for-5 reverse split), while a split typed into the register is stored as `ratio : 1` (a 6-for-1 was `6 / 1`). Compare the quotient, never the columns.
 
-The register side of a split is a `ZTRANSACTION` of type 23 in the holding account on the split date. Historic files may instead carry a split as a new zero-basis lot dated on the split day, so a zero-basis lot on a split date is a mishandled split, not a missing transfer. Since Quicken 9.3 a quote update can propose and apply Stock Split transactions wherever `ZSECURITYSPLIT` has a row and the register has no type-23 row for that date; on the observed file it compared the stored columns literally, so a `3 / 1` register split was reported as a "different ratio" from the downloaded `1 / 0.333333`.
+The register side of a split is a `ZTRANSACTION` of type 23 in the holding account on the split date. Historic files may instead carry a split as a new zero-basis lot dated on the split day, so a zero-basis lot on a split date is a mishandled split, not a missing transfer. Since the Quicken 9.3 beta a quote update can propose and apply Stock Split transactions wherever `ZSECURITYSPLIT` has a row and the register has no type-23 row for that date; on the observed file it compared the stored columns literally, so a `6 / 1` register split was reported as a "different ratio" from the downloaded `1 / 0.166667`.
 
 ```sql
 SELECT s.ZNAME AS security_name,
