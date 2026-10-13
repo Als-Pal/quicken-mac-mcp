@@ -149,6 +149,35 @@ describe("detectQuickenDb", () => {
     expect(detectQuickenDb()).toContain("com.quicken.QuickenAppStore");
   });
 
+  it("ignores Application Support folders that merely start with 'Quicken'", () => {
+    stubDirectories({
+      "Library/Application Support": ["Quickenfoo", "quicken"],
+      "Library/Application Support/Quickenfoo/Documents": ["Foo.quicken"],
+      "Library/Application Support/quicken/Documents": ["Lower.quicken"],
+    });
+    expect(() => detectQuickenDb()).toThrow("No .quicken bundles found");
+  });
+
+  it("refuses when a Quicken location exists but cannot be read", () => {
+    const byPath = new Map([
+      [join(homedir(), "Library/Application Support"), ["Quicken"]],
+      [
+        join(homedir(), "Library/Application Support/Quicken/Documents"),
+        ["Other.quicken"],
+      ],
+    ]);
+    vi.mocked(readdirSync).mockImplementation(((dir: string) => {
+      if (String(dir) === join(homedir(), "Documents")) {
+        throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+      }
+      const entries = byPath.get(String(dir));
+      if (entries) return entries as any;
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    }) as any);
+    expect(() => detectQuickenDb()).toThrow("Cannot read");
+    expect(() => detectQuickenDb()).toThrow("QUICKEN_DB_PATH");
+  });
+
   it("lists every searched directory in the not-found error", () => {
     stubDirectories({});
     expect(() => detectQuickenDb()).toThrow("Application Support");

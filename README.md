@@ -21,11 +21,11 @@ The Claude Code plugin install (`claude plugin install quicken-mac-mcp`) bundles
 
 ## Requirements
 
-**Quicken For Mac should be open** while using either the skill or the MCP. On most installs Quicken replaces its database file with an encrypted stub when the app is closed, so the data is only readable while Quicken is running. (Some installs leave the file readable while closed; the probe checks for the `ZACCOUNT` table rather than assuming either way.)
+**Quicken For Mac should be open** while using either the skill or the MCP. Depending on the install, Quicken may replace its database file with an encrypted stub when the app is closed; other installs leave the file readable while closed. The probe checks for the `ZACCOUNT` table rather than assuming either way.
 
 ## How it works
 
-Quicken For Mac stores data in a Core Data SQLite database inside a `.quicken` bundle. The retail/subscription app keeps it in `~/Library/Application Support/Quicken/Documents/` by default (`Quicken Beta` for the beta channel); the Mac App Store build uses its sandbox container; and a file can live anywhere after File → Move To, commonly `~/Documents`. The server looks in all of those (see [Custom database path](#custom-database-path)). The skill teaches Claude how to query that database directly; the MCP server is a thin wrapper that exposes eight prepackaged queries as tools.
+Quicken For Mac stores data in a Core Data SQLite database inside a `.quicken` bundle. The retail/subscription app keeps it in `~/Library/Application Support/Quicken/Documents/` by default (`Quicken Beta` for the beta channel); the Mac App Store build uses its sandbox container; and a file can live anywhere the user chose in File → Move To, for example `~/Documents`. The server looks in all of those (see [Custom database path](#custom-database-path)). The skill teaches Claude how to query that database directly; the MCP server is a thin wrapper that exposes eight prepackaged queries as tools.
 
 ## Install — recommended (Claude Code, plugin)
 

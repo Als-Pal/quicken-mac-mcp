@@ -23,27 +23,22 @@ export const CORE_DATA_EPOCH_OFFSET = 978307200;
  * Directories Quicken For Mac uses for `.quicken` bundles, in the order they
  * are searched:
  *
- *   1. ~/Documents — the location this project searched originally, and a
- *      common place to keep a file after File → Move To.
+ *   1. ~/Documents — the location this project searched originally; also where
+ *      a file lands if the user chose it in File → Move To.
  *   2. ~/Library/Application Support/<Quicken folder>/Documents — the default for the
- *      retail/subscription app (the folder is "Quicken", or "Quicken Beta" for
- *      the beta channel, and older releases carried a year in the name).
- *   3. The Mac App Store build's sandbox container.
- *
- * Quicken's own help ("Learning about data files") documents 2 and 3.
+ *      retail/subscription app. Quicken's help ("Learning about data files")
+ *      names the "Quicken" folder; Quicken community FAQs show the same path
+ *      with "Quicken Beta" for the beta channel and year-suffixed folder names
+ *      for older releases, so any folder named "Quicken" or "Quicken <suffix>"
+ *      is searched.
+ *   3. The Mac App Store build's sandbox container (also from Quicken's help).
  */
 export function quickenSearchDirectories(): string[] {
   const home = homedir();
   const dirs = [join(home, "Documents")];
 
   const appSupport = join(home, "Library", "Application Support");
-  let appSupportEntries: string[] = [];
-  try {
-    appSupportEntries = readdirSync(appSupport);
-  } catch {
-    // Unreadable or absent; fall through with the other directories.
-  }
-  for (const entry of appSupportEntries.sort()) {
+  for (const entry of readDirectoryIfPresent(appSupport).sort()) {
     if (entry === "Quicken" || entry.startsWith("Quicken ")) {
       dirs.push(join(appSupport, entry, "Documents"));
     }
@@ -66,6 +61,24 @@ export function quickenSearchDirectories(): string[] {
 }
 
 /**
+ * Read a directory's entries. A directory that does not exist yields []; one
+ * that exists but cannot be read (for example ~/Documents without a Files and
+ * Folders grant) throws, because silently skipping it could make detection
+ * settle on a bundle elsewhere that the user did not intend.
+ */
+function readDirectoryIfPresent(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch (err: any) {
+    if (err?.code === "ENOENT" || err?.code === "ENOTDIR") return [];
+    throw new Error(
+      `Cannot read ${dir} (${err?.code ?? err}). Set QUICKEN_DB_PATH to your Quicken database path.`,
+      { cause: err }
+    );
+  }
+}
+
+/**
  * Auto-detect a Quicken database by scanning every known Quicken document
  * directory for `.quicken` bundles. Returns the path to the `data` file when
  * exactly one bundle exists across all of them. Refuses to guess when several
@@ -77,13 +90,7 @@ export function detectQuickenDb(): string {
   const bundles: string[] = [];
 
   for (const dir of searched) {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      continue; // directory absent or unreadable
-    }
-    for (const entry of entries) {
+    for (const entry of readDirectoryIfPresent(dir)) {
       if (entry.endsWith(".quicken")) bundles.push(resolve(dir, entry, "data"));
     }
   }
@@ -195,8 +202,8 @@ export function diagnosePath(filePath: string): string {
 
 /**
  * Probe whether an open Quicken database is decrypted. When Quicken For Mac is
- * closed it swaps the bundle for an encrypted stub that has none of the expected
- * Core Data tables, so the presence of ZACCOUNT is our decryption signal.
+ * closed it may swap the bundle for an encrypted stub that has none of the
+ * expected Core Data tables, so the presence of ZACCOUNT is our readiness signal.
  */
 export function isQuickenDecrypted(db: Database.Database): boolean {
   const row = db
@@ -235,7 +242,7 @@ export function createDbAccessor(dbPath?: string): () => Database.Database {
         db = new Database(resolvedPath, { readonly: true });
 
         // Eagerly verify the database is decrypted (i.e. Quicken For Mac is
-        // running). When Quicken is closed the file is an encrypted stub with
+        // running). When Quicken is closed the file may be an encrypted stub with
         // none of the expected tables, so fail fast with a clear message
         // instead of a cryptic "no such table" on the first real query.
         if (!isQuickenDecrypted(db)) {

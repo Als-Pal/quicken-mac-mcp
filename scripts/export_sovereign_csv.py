@@ -38,10 +38,14 @@ def detect_quicken_db():
     # Retail/subscription default: ~/Library/Application Support/Quicken*/Documents
     # (the folder is "Quicken", "Quicken Beta", or year-suffixed on older releases).
     app_support = os.path.join(home, "Library", "Application Support")
-    if os.path.isdir(app_support):
+    try:
         for name in sorted(os.listdir(app_support)):
             if name == "Quicken" or name.startswith("Quicken "):
                 search_dirs.append(os.path.join(app_support, name, "Documents"))
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        log(f"Error reading directory {app_support}: {e}")
     # Mac App Store build keeps its file inside the app sandbox.
     search_dirs.append(os.path.join(
         home, "Library", "Containers", "com.quicken.QuickenAppStore", "Data",

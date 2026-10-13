@@ -167,10 +167,10 @@ function printManPage() {
     `       ${c.bold("IMPORTANT:")} Quicken For Mac must be running while using this tool.`
   );
   console.log(
-    "       On most installs Quicken replaces its database with an encrypted stub"
+    "       Depending on the install, Quicken may replace its database with an"
   );
   console.log(
-    "       when the application is closed, so the data is readable only while it runs."
+    "       encrypted stub when the application is closed; open Quicken if queries fail."
   );
   console.log();
 
@@ -425,7 +425,7 @@ async function run() {
       console.error(`Export failed: ${sanitizeError(err)}`);
       if (err.message?.includes("no such table")) {
         console.error(
-          `\nQuicken For Mac must be running (it encrypts its database when closed).`
+          `\nQuicken For Mac may need to be running (some installs encrypt the database when closed).`
         );
         console.error(`Launch it with: open -a 'Quicken'`);
       }
@@ -487,7 +487,7 @@ async function run() {
         console.error();
         console.error(color.yellow("Troubleshooting:"));
         console.error(
-          "  1. Make sure Quicken For Mac is running. It encrypts its database when closed."
+          "  1. Make sure Quicken For Mac is running. Some installs encrypt the database when closed."
         );
         console.error(
           `  2. If Quicken is closed, launch it with: ${color.cyan("open -a 'Quicken'")}`

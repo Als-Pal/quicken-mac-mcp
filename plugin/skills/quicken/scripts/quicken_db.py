@@ -42,10 +42,9 @@ def search_directories() -> list[Path]:
     home = Path.home()
     dirs = [home / "Documents"]
     app_support = home / "Library" / "Application Support"
-    if app_support.is_dir():
-        for entry in sorted(app_support.iterdir()):
-            if entry.name == "Quicken" or entry.name.startswith("Quicken "):
-                dirs.append(entry / "Documents")
+    for entry in sorted(_entries_if_present(app_support)):
+        if entry.name == "Quicken" or entry.name.startswith("Quicken "):
+            dirs.append(entry / "Documents")
     dirs.append(
         home
         / "Library"
@@ -60,12 +59,30 @@ def search_directories() -> list[Path]:
     return dirs
 
 
+def _entries_if_present(directory: Path) -> list[Path]:
+    """List a directory; absent -> []; present but unreadable -> ProbeError.
+
+    Skipping an unreadable ~/Documents could make discovery settle on a bundle
+    elsewhere that the user did not intend, so refuse instead.
+    """
+    try:
+        return list(directory.iterdir())
+    except FileNotFoundError:
+        return []
+    except NotADirectoryError:
+        return []
+    except PermissionError as error:
+        raise ProbeError(
+            f"Cannot read {directory}; pass --db or set QUICKEN_DB_PATH."
+        ) from error
+
+
 def discover_candidates() -> list[Path]:
     candidates: list[Path] = []
     for directory in search_directories():
-        if not directory.is_dir():
-            continue
-        for bundle in directory.glob("*.quicken"):
+        for bundle in _entries_if_present(directory):
+            if bundle.suffix != ".quicken":
+                continue
             data = bundle / "data"
             if data.is_file():
                 candidates.append(data.resolve())

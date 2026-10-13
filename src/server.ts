@@ -73,7 +73,7 @@ export function formatToolError(err: any) {
   } else if (msg.includes("no such table") || msg.includes("encrypted")) {
     if (!isDatabaseDecrypted()) {
       text +=
-        "\n\nQuicken For Mac is not running. Quicken encrypts its database when " +
+        "\n\nQuicken For Mac is not running, and this install keeps its database encrypted when " +
         "the app is closed. Please ask the user if they'd like to launch Quicken, " +
         "then run: open -a 'Quicken' and retry.";
     } else {
@@ -135,7 +135,7 @@ export function createServer(getDb: () => Database.Database): McpServer {
         "- query_transactions returns one row per split entry — a single transaction may produce multiple rows if split across categories.",
         "",
         "## Prerequisites",
-        "- Quicken For Mac usually needs to be open: on many installs Quicken swaps the database for an encrypted stub when the app is closed (some installs leave the file readable while closed).",
+        "- Quicken For Mac should be open. Depending on the install, Quicken may swap the database for an encrypted stub when the app is closed; other installs leave the file readable. The ZACCOUNT table check is the test.",
         "- If a tool returns 'no such table' and Quicken is not running, offer to launch it for the user with: open -a 'Quicken'",
         "- After launching Quicken, wait a few seconds for it to open the database, then retry the tool call.",
         "",

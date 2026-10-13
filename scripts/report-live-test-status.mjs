@@ -16,15 +16,20 @@ if (configured) {
   // script runs before the TypeScript build).
   const home = homedir();
   const searchDirs = [join(home, "Documents")];
-  const appSupport = join(home, "Library", "Application Support");
-  try {
-    for (const entry of readdirSync(appSupport).sort()) {
-      if (entry === "Quicken" || entry.startsWith("Quicken ")) {
-        searchDirs.push(join(appSupport, entry, "Documents"));
-      }
+  const readDirectoryIfPresent = (dir) => {
+    try {
+      return readdirSync(dir);
+    } catch (err) {
+      if (err?.code === "ENOENT" || err?.code === "ENOTDIR") return [];
+      unavailableReason = `a Quicken location is not readable (${err?.code ?? "error"})`;
+      return [];
     }
-  } catch {
-    // absent or unreadable
+  };
+  const appSupport = join(home, "Library", "Application Support");
+  for (const entry of readDirectoryIfPresent(appSupport).sort()) {
+    if (entry === "Quicken" || entry.startsWith("Quicken ")) {
+      searchDirs.push(join(appSupport, entry, "Documents"));
+    }
   }
   searchDirs.push(
     join(
@@ -42,16 +47,14 @@ if (configured) {
 
   const bundles = [];
   for (const dir of searchDirs) {
-    try {
-      for (const entry of readdirSync(dir)) {
-        if (entry.endsWith(".quicken")) bundles.push(join(dir, entry, "data"));
-      }
-    } catch {
-      // absent or unreadable
+    for (const entry of readDirectoryIfPresent(dir)) {
+      if (entry.endsWith(".quicken")) bundles.push(join(dir, entry, "data"));
     }
   }
 
-  if (bundles.length === 0) {
+  if (unavailableReason) {
+    // keep the unreadable-directory reason; do not guess from the rest
+  } else if (bundles.length === 0) {
     unavailableReason = "no .quicken bundles were found in any known Quicken location";
   } else if (bundles.length > 1) {
     unavailableReason =
