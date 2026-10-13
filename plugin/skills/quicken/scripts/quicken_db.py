@@ -67,14 +67,30 @@ def _entries_if_present(directory: Path) -> list[Path]:
     """
     try:
         return list(directory.iterdir())
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return []
-    except NotADirectoryError:
-        return []
-    except PermissionError as error:
+    except OSError as error:
         raise ProbeError(
-            f"Cannot read {directory}; pass --db or set QUICKEN_DB_PATH."
+            f"Cannot read {directory} ({error.strerror}); pass --db or set QUICKEN_DB_PATH."
         ) from error
+
+
+def _has_data_file(bundle: Path) -> bool:
+    """True when <bundle>/data is a regular file; an unreadable bundle refuses."""
+    data = bundle / "data"
+    try:
+        return data.is_file()
+    except OSError:
+        pass
+    try:
+        data.stat()
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise ProbeError(
+            f"Cannot read {bundle} ({error.strerror}); pass --db or set QUICKEN_DB_PATH."
+        ) from error
+    return False
 
 
 def discover_candidates() -> list[Path]:
@@ -83,9 +99,8 @@ def discover_candidates() -> list[Path]:
         for bundle in _entries_if_present(directory):
             if bundle.suffix != ".quicken":
                 continue
-            data = bundle / "data"
-            if data.is_file():
-                candidates.append(data.resolve())
+            if _has_data_file(bundle):
+                candidates.append((bundle / "data").resolve())
     return sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True)
 
 
